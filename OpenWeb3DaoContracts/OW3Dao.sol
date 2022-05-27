@@ -89,14 +89,19 @@ contract OW3NFTs is ERC721Enumerable {
 
     string InitName = "OW3NFTs"; 
     string InitSymbol = "OW3"; 
+    string public licence_URI;
     IERC20 public ERC20Contract;
+    IERC20 public cUSD;
+
     mapping (address => bool) public autorized; 
     mapping (address => bool) public whitelist; 
     mapping (uint => string) public NFTID2URI;
 
 
-    constructor() ERC721(InitName, InitSymbol) {
+    constructor(string memory _licence_URI, address _cUSD_address) ERC721(InitName, InitSymbol) {
+        licence_URI=_licence_URI;
         autorized[msg.sender]=true;
+        cUSD = IERC20(_cUSD_address);
     }
 
     function autorizeAddress(address _address) public onlyAutorized{
@@ -117,15 +122,6 @@ contract OW3NFTs is ERC721Enumerable {
 
     function setup_OW3ERC20(address _ERC20_add) public onlyAutorized{
         ERC20Contract=IERC20(_ERC20_add);
-    }
-    function mint_OW3ERC20(address receiver_, uint amount_) public onlyAutorized onlyWhitelist(receiver_){
-        ERC20Contract.manager_mint(receiver_,amount_);
-    }
-    function mintOW3NFT(address receiver_,string memory _license_URI) public onlyAutorized onlyWhitelist(receiver_) {
-        uint256 supply = totalSupply();
-        totalMinted++;
-        NFTID2URI[supply+1]=_license_URI;
-        _safeMint(receiver_, supply + 1);
     }
 
     function walletOfOwner(address _owner)
@@ -152,10 +148,51 @@ contract OW3NFTs is ERC721Enumerable {
         _exists(token_Id),
         "ERC721Metadata: URI query for nonexistent token"
         );
-        return NFTID2URI[token_Id];
+        return licence_URI;
     }
     function change_licenseURI(uint256 _token_Id, string memory _newURI) public onlyAutorized{
         NFTID2URI[_token_Id]=_newURI;
     }
-
+    struct proposal{
+        string name;
+        uint value;
+        bool state;
+        bool cUSD;
+        address owner;
+    }
+    proposal[] public proposals;
+    function new_proposal(string memory _name) public payable {
+        proposals.push(proposal(_name,msg.value,false,false,msg.sender));
+        ERC20Contract.manager_mint(msg.sender,msg.value/4);
+    }
+    function new_proposal_cUSD(string memory _name, uint _cUSD_value) public {
+        require(cUSD.balanceOf(_msgSender())>=_cUSD_value,"not enough cUSD");
+        cUSD.transfer(address(this),_cUSD_value);
+        proposals.push(proposal(_name,_cUSD_value,false,true,msg.sender));
+    }
+    function proposal_solution(uint _proposal_id, address _receiver)public {
+        require(proposals[_proposal_id].owner==msg.sender,"only proposal creator can resolute");
+        require(proposals[_proposal_id].state==false,"proposal already solved");
+        if(proposals[_proposal_id].cUSD){
+            cUSD.transferFrom(address(this),_msgSender(),proposals[_proposal_id].value);
+        }
+        else{
+            ERC20Contract.manager_mint(_receiver,proposals[_proposal_id].value*3/4);
+        }
+        proposals[_proposal_id].state=true;
+    }
+    function free_code_copyright() public payable{
+        require(msg.value>=10 * 10 ** 18,"minimun license doantion is 100 Celo");
+        uint256 supply = totalSupply();
+        totalMinted++;
+        _safeMint(msg.sender, supply + 1);
+    }
+    function get_token_price() public view returns(uint _price) {
+        return address(this).balance/ERC20Contract.totalSupply();
+    }
+    function sell_tokens(uint _amount) public {
+        require(ERC20Contract.balanceOf(_msgSender())>=_amount,"amount to sell grater than balance");
+        ERC20Contract.burn(_msgSender(),_amount);
+        payable(_msgSender()).transfer(_amount*get_token_price());
+    }
 }
